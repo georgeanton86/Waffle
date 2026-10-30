@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ClipboardEvent, FormEvent } from "react";
+import type { ClipboardEvent, FormEvent, ReactNode } from "react";
 import { Minus, Plus, X } from "lucide-react";
 import {
   SPIN_MAX,
   SPIN_MIN,
   SPIN_STEP,
   buildShow,
-  buildWheel,
   clock,
   formatResult,
   pickWinners,
@@ -14,14 +13,16 @@ import {
   placeLabel,
   type DrawMode,
   type ShowCue,
-  type WheelPlan,
 } from "@/lib/draw";
-import { useWaffle, type Entry } from "@/lib/waffle-store";
+import { byNumber, useWaffle, type Entry } from "@/lib/waffle-store";
+
+type FaceSlice = { id: string; name: string; number: number; color: number };
 
 type LiveDraw = {
   id: string;
   winners: Entry[];
   pool: string[];
+  slices: FaceSlice[];
   poolSize: number;
   seconds: number;
   mode: DrawMode;
@@ -63,13 +64,19 @@ function Marquee({ tick, mode }: { tick: number; mode: "idle" | "live" | "win" }
   );
 }
 
-const SLICE_COLORS = [
-  "var(--color-hot)",
-  "var(--color-sun)",
-  "var(--color-mint)",
-  "var(--color-sky)",
-  "var(--color-pop)",
-];
+function sliceFill(hue: number): string {
+  const safe = ((Math.round(hue) % 360) + 360) % 360;
+  return `hsl(${safe} 76% 62%)`;
+}
+
+function faceSlices(entries: readonly Entry[], colorById: Record<string, number>): FaceSlice[] {
+  return byNumber(entries).map((entry, index) => ({
+    id: entry.id,
+    name: entry.name,
+    number: entry.number,
+    color: colorById[entry.id] ?? Math.round((index * 360) / Math.max(entries.length, 1)),
+  }));
+}
 const WAFFLE_HOP = [0, 1, 2, 3, 7, 11, 10, 9, 8, 4, 5, 6];
 const DRAW_MODES: { id: DrawMode; label: string }[] = [
   { id: "show", label: "Show" },
@@ -102,8 +109,8 @@ function slicePath(index: number, total: number): { d: string; x: number; y: num
   };
 }
 
-function shortName(name: string): string {
-  return name.length > 9 ? `${name.slice(0, 8)}…` : name;
+function shortName(name: string, max = 10): string {
+  return name.length > max ? `${name.slice(0, max - 1)}…` : name;
 }
 
 function WheelFace({
@@ -111,12 +118,16 @@ function WheelFace({
   svgRef,
   idle,
   hub,
+  hubButton,
 }: {
-  slices: string[];
+  slices: FaceSlice[];
   svgRef?: { current: SVGSVGElement | null };
   idle?: boolean;
   hub: string;
+  hubButton?: ReactNode;
 }) {
+  const nameSize = slices.length > 12 ? 9 : 13;
+  const nameMax = slices.length > 12 ? 8 : 12;
   return (
     <div className="wheel-stage">
       <div className="wheel-pointer" aria-hidden="true" />
@@ -126,27 +137,39 @@ function WheelFace({
         viewBox="0 0 280 280"
         aria-hidden="true"
       >
-        {slices.map((name, index) => {
+        {slices.map((slice, index) => {
           const piece = slicePath(index, slices.length);
           return (
-            <g key={`${name}-${index}`}>
-              <path d={piece.d} fill={SLICE_COLORS[index % SLICE_COLORS.length]} />
+            <g key={slice.id}>
+              <path d={piece.d} fill={sliceFill(slice.color)} />
               <text
                 className="slice-label"
                 x={piece.x}
-                y={piece.y}
+                y={piece.y - 4}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                transform={`rotate(${piece.rot} ${piece.x} ${piece.y})`}
+                fontSize={nameSize}
+                transform={`rotate(${piece.rot} ${piece.x} ${piece.y - 4})`}
               >
-                {shortName(name)}
+                {shortName(slice.name, nameMax)}
+              </text>
+              <text
+                className="slice-label"
+                x={piece.x}
+                y={piece.y + nameSize}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize={8}
+                transform={`rotate(${piece.rot} ${piece.x} ${piece.y + nameSize})`}
+              >
+                {slice.number}
               </text>
             </g>
           );
         })}
         <circle cx="140" cy="140" r="38" fill="var(--color-night)" />
       </svg>
-      <p className="wheel-hub line-clamp-2">{hub}</p>
+      {hubButton ?? <p className="wheel-hub line-clamp-2">{hub}</p>}
     </div>
   );
 }
@@ -167,7 +190,12 @@ function WaffleFace({ tick, live }: { tick: number; live: boolean }) {
   );
 }
 
-function useWheelSpin(svgRef: { current: SVGSVGElement | null }, plans: WheelPlan[], place: number, budgets: number[]) {
+function useWheelSpin(
+  svgRef: { current: SVGSVGElement | null },
+  plans: { count: number; winnerIndex: number }[],
+  place: number,
+  budgets: number[],
+) {
   const angleRef = useRef(0);
   const spun = useRef(-1);
 
@@ -178,7 +206,7 @@ function useWheelSpin(svgRef: { current: SVGSVGElement | null }, plans: WheelPla
     const plan = plans[place];
     if (!plan) return;
     spun.current = place;
-    const slots = Math.max(1, plan.slices.length);
+    const slots = Math.max(1, plan.count);
     const landing = -((plan.winnerIndex + 0.5) / slots) * 360;
     const from = angleRef.current;
     const base = ((landing % 360) + 360) % 360;
@@ -320,10 +348,13 @@ function DrawStage({
   const names = draw.winners.map((winner) => winner.name);
   const { cue, locked, settled, tick, remaining, cues } = useShow(draw.pool, names, draw.seconds);
   const wheelSvg = useRef<SVGSVGElement | null>(null);
-  const rigRef = useRef<{ plans: WheelPlan[]; budgets: number[] } | null>(null);
+  const rigRef = useRef<{ plans: { count: number; winnerIndex: number }[]; budgets: number[] } | null>(null);
   if (rigRef.current === null) {
     rigRef.current = {
-      plans: names.map((name, index) => buildWheel(draw.pool, name, names.slice(0, index))),
+      plans: draw.winners.map((winner) => ({
+        count: Math.max(1, draw.slices.length),
+        winnerIndex: Math.max(0, draw.slices.findIndex((slice) => slice.id === winner.id)),
+      })),
       budgets: placeBudgets(cues, names.length),
     };
   }
@@ -366,14 +397,10 @@ function DrawStage({
           {settled ? announcement : ""}
         </p>
         {draw.mode === "wheel" ? (
-          <WheelFace
-            slices={rigRef.current.plans[Math.max(0, cue?.place ?? 0)]?.slices ?? names}
-            svgRef={wheelSvg}
-            hub={cue?.kind === "spin" ? "Spin" : ""}
-          />
+          <WheelFace slices={draw.slices} svgRef={wheelSvg} hub={settled ? "" : "Spin"} />
         ) : null}
         {draw.mode === "waffle" ? <WaffleFace tick={tick} live={!settled} /> : null}
-        {draw.mode === "wheel" && cue?.kind === "spin" ? null : (
+        {draw.mode === "wheel" && !settled ? null : (
           <p
             key={cue?.kind === "lock" ? `lock-${cue.place}` : "live"}
             className={`mt-2 font-display text-4xl font-semibold leading-tight break-words ${
@@ -465,22 +492,84 @@ function DrawStage({
   );
 }
 
+function ShuffleWheel({
+  slices,
+  disabled,
+  onShuffle,
+}: {
+  slices: FaceSlice[];
+  disabled: boolean;
+  onShuffle: () => void;
+}) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const angle = useRef(0);
+  const [busy, setBusy] = useState(false);
+  const shown =
+    slices.length >= 2
+      ? slices
+      : [
+          { id: "a", name: "Name", number: 1, color: 0 },
+          { id: "b", name: "Name", number: 2, color: 72 },
+          { id: "c", name: "Name", number: 3, color: 144 },
+          { id: "d", name: "Name", number: 4, color: 216 },
+          { id: "e", name: "Name", number: 5, color: 288 },
+        ];
+
+  function spin() {
+    if (disabled || busy || slices.length < 2) return;
+    setBusy(true);
+    onShuffle();
+    const node = svgRef.current;
+    const from = angle.current;
+    const to = from + 720;
+    const started = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - started) / 1100);
+      const eased = 1 - (1 - t) ** 3;
+      const value = from + (to - from) * eased;
+      angle.current = value;
+      if (node) node.style.transform = `rotate(${value}deg)`;
+      if (t < 1) requestAnimationFrame(step);
+      else setBusy(false);
+    };
+    requestAnimationFrame(step);
+  }
+
+  return (
+    <WheelFace
+      slices={shown}
+      svgRef={svgRef}
+      idle={!busy}
+      hub=""
+      hubButton={
+        <button
+          type="button"
+          className="wheel-hub-btn"
+          disabled={disabled || busy || slices.length < 2}
+          onClick={spin}
+        >
+          {busy ? "Mixing" : "Shuffle"}
+        </button>
+      }
+    />
+  );
+}
+
 function IdleBoard({
   seconds,
-  winners,
   mode,
-  names,
+  slices,
+  canShuffle,
+  onShuffle,
 }: {
   seconds: number;
-  winners: number;
   mode: DrawMode;
-  names: string[];
+  slices: FaceSlice[];
+  canShuffle: boolean;
+  onShuffle: () => void;
 }) {
-  const extra = winners > 1 ? `, and all ${winners} winners lock in as it goes` : "";
   const title = mode === "wheel" ? "Give it a spin" : mode === "waffle" ? "The waffle decides" : "Who's it gonna be?";
   const kicker = mode === "wheel" ? "The wheel" : mode === "waffle" ? "The waffle" : "Tonight's draw";
-  const preview = names.slice(0, 6);
-  const slices = preview.length >= 2 ? preview : ["Name", "Name", "Name", "Name", "Name", "Name"];
   return (
     <section className="show-board mb-4 rounded-3xl px-4 py-4">
       <Marquee tick={0} mode="idle" />
@@ -489,16 +578,15 @@ function IdleBoard({
         <p className="text-sm font-medium tabular-nums text-ink/80">{clock(seconds * 1000)}</p>
       </div>
       <h1 className="mt-1 font-display text-4xl font-semibold leading-tight">{title}</h1>
-      {mode === "wheel" ? <WheelFace slices={slices} idle hub="You" /> : null}
+      {mode === "wheel" ? <ShuffleWheel slices={slices} disabled={!canShuffle} onShuffle={onShuffle} /> : null}
       {mode === "waffle" ? <WaffleFace tick={2} live={false} /> : null}
       <p className="mt-2 max-w-sm text-base text-ink/75">
-        Add the names. One {seconds}-second spin{extra}.
+        {mode === "wheel"
+          ? "Each name keeps its number and gets its own color. Shuffle only changes the colors."
+          : mode === "waffle"
+            ? "The waffle hops until it lands on the winner."
+            : "Names flash until the winner locks in."}
       </p>
-      {mode === "show" ? (
-        <div className="mt-4">
-          <Marquee tick={2} mode="idle" />
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -518,6 +606,7 @@ export function WaffleApp() {
   const drawMode = useWaffle((state) => state.drawMode);
   const uniqueOnly = useWaffle((state) => state.uniqueOnly);
   const history = useWaffle((state) => state.history);
+  const colorById = useWaffle((state) => state.colorById);
   const addName = useWaffle((state) => state.addName);
   const addMany = useWaffle((state) => state.addMany);
   const remove = useWaffle((state) => state.remove);
@@ -531,6 +620,7 @@ export function WaffleApp() {
   const pushHistory = useWaffle((state) => state.pushHistory);
   const clearHistory = useWaffle((state) => state.clearHistory);
   const loadSample = useWaffle((state) => state.loadSample);
+  const shufflePlacement = useWaffle((state) => state.shufflePlacement);
 
   const [draft, setDraft] = useState("");
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -558,7 +648,19 @@ export function WaffleApp() {
     stageRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
   }, [live]);
 
+  const noted = useRef("");
   const onSettled = useCallback(() => setSettled(true), []);
+
+  useEffect(() => {
+    if (!settled || !live || noted.current === live.id) return;
+    noted.current = live.id;
+    pushHistory({
+      id: live.id,
+      at: Date.now(),
+      winners: live.winners.map((winner) => `No. ${winner.number} — ${winner.name}`),
+      poolSize: live.poolSize,
+    });
+  }, [settled, live, pushHistory]);
 
   function ingest(raw: string, closePaste = false) {
     const { added, skipped } = addMany(raw);
@@ -606,22 +708,19 @@ export function WaffleApp() {
   function onDraw() {
     const state = useWaffle.getState();
     if (state.entries.length === 0) return;
-    const winners = pickWinners(state.entries, Math.min(state.winnerCount, state.entries.length));
+    const ordered = byNumber(state.entries);
+    const winners = pickWinners(ordered, Math.min(state.winnerCount, ordered.length));
     if (winners.length === 0) return;
     const id = crypto.randomUUID();
-    pushHistory({
-      id,
-      at: Date.now(),
-      winners: winners.map((winner) => winner.name),
-      poolSize: state.entries.length,
-    });
+    const slices = faceSlices(ordered, state.colorById);
     setSettled(false);
     setUndoEntries(null);
     setLive({
       id,
       winners,
-      pool: state.entries.map((entry) => entry.name),
-      poolSize: state.entries.length,
+      pool: ordered.map((entry) => entry.name),
+      slices,
+      poolSize: ordered.length,
       seconds: state.spinSeconds,
       mode: state.drawMode,
     });
@@ -629,7 +728,7 @@ export function WaffleApp() {
 
   const locked = live !== null && !settled;
   const canDraw = entries.length > 0 && !locked;
-  const picked = new Set(!undoEntries && live ? live.winners.map((winner) => winner.id) : []);
+  const picked = new Set(settled && !undoEntries && live ? live.winners.map((winner) => winner.id) : []);
   const maxCount = Math.min(12, Math.max(1, entries.length));
 
   return (
@@ -638,7 +737,15 @@ export function WaffleApp() {
         <LogoMark />
         <p className="text-sm font-medium text-muted">Waffle</p>
       </header>
-      <ModePicker value={drawMode} disabled={locked} onChange={setDrawMode} />
+      <ModePicker
+        value={drawMode}
+        disabled={locked}
+        onChange={(mode) => {
+          setDrawMode(mode);
+          setLive(null);
+          setSettled(false);
+        }}
+      />
 
       <div ref={stageRef}>
         {live ? (
@@ -662,9 +769,13 @@ export function WaffleApp() {
         ) : (
           <IdleBoard
             seconds={spinSeconds}
-            winners={winnerCount}
             mode={drawMode}
-            names={entries.map((entry) => entry.name)}
+            slices={faceSlices(entries, colorById)}
+            canShuffle={!locked && entries.length > 1}
+            onShuffle={() => {
+              shufflePlacement();
+              setStatus("Colors changed. Each name stayed on its number.");
+            }}
           />
         )}
       </div>
@@ -766,9 +877,9 @@ export function WaffleApp() {
           </div>
         ) : (
           <ul className="max-h-80 overflow-y-auto overscroll-contain border-t border-line">
-            {entries.map((entry, index) => (
+            {byNumber(entries).map((entry) => (
               <li key={entry.id} className="flex items-center gap-2 border-b border-line last:border-b-0">
-                <span className="w-8 shrink-0 text-right text-sm tabular-nums text-muted">{index + 1}</span>
+                <span className="w-10 shrink-0 text-right text-base font-medium tabular-nums">{entry.number}</span>
                 <span className="min-w-0 flex-1 truncate text-base" title={entry.name}>
                   {entry.name}
                 </span>
@@ -856,7 +967,7 @@ export function WaffleApp() {
       ) : null}
 
       <p className="mt-10 max-w-sm text-sm leading-normal text-muted">
-        Hosts call it a waffle when the real word gets the post removed.
+        For fun only. Nobody here is liable for a prize, a post, or a draw.
       </p>
       <div className="h-64" aria-hidden="true" />
 
@@ -919,7 +1030,7 @@ export function WaffleApp() {
             disabled={!canDraw}
             onClick={onDraw}
           >
-            {locked ? "On the air" : entries.length === 0 ? "Add names to draw" : live && settled ? "Draw again" : "Draw a winner"}
+            {locked ? "On the air" : entries.length === 0 ? "Add names to draw" : live && settled ? "Spin again" : "Randomize"}
           </button>
         </div>
       </div>

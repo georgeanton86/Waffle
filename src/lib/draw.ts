@@ -100,18 +100,33 @@ function pace(budget: number): number[] {
   return delays;
 }
 
-function nextName(pool: readonly string[], banned: string, previous: string): string {
+function nextName(pool: readonly string[], banned: string, previous: string, rng: () => number): string {
   if (pool.length === 0) return previous || banned;
-  let name = pool[Math.floor(Math.random() * pool.length)] ?? banned;
+  let name = pool[Math.floor(rng() * pool.length)] ?? banned;
   let guard = 0;
   while ((name === banned || name === previous) && pool.length > 1 && guard < 8) {
-    name = pool[Math.floor(Math.random() * pool.length)] ?? name;
+    name = pool[Math.floor(rng() * pool.length)] ?? name;
     guard += 1;
   }
   return name;
 }
 
-export function buildShow(pool: readonly string[], winners: readonly string[], seconds: number): ShowCue[] {
+export function mulberry32(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function buildShow(
+  pool: readonly string[],
+  winners: readonly string[],
+  seconds: number,
+  rng: () => number = Math.random,
+): ShowCue[] {
   const names = winners.filter((name) => name.length > 0);
   if (names.length === 0) return [];
   if (pool.length <= 1) {
@@ -141,7 +156,7 @@ export function buildShow(pool: readonly string[], winners: readonly string[], s
     let previous = "";
     delays.forEach((wait, index) => {
       const last = index === delays.length - 1;
-      const name = last ? winner : nextName(source.length > 0 ? source : pool, winner, previous);
+      const name = last ? winner : nextName(source.length > 0 ? source : pool, winner, previous, rng);
       previous = name;
       cues.push({ kind: last ? "lock" : "spin", name, place, wait });
     });
@@ -155,22 +170,24 @@ export function showLength(cues: readonly ShowCue[]): number {
 }
 
 export function buildWheel(pool: readonly string[], winner: string, already: readonly string[]): WheelPlan {
-  const blocked = new Set(already);
-  blocked.add(winner);
-  const others: string[] = [];
-  const seen = new Set<string>();
-  for (const name of pool) {
-    if (!name || blocked.has(name) || seen.has(name)) continue;
-    seen.add(name);
-    others.push(name);
-  }
-  const slots = Math.min(8, Math.max(2, others.length + 1));
-  const winnerIndex = Math.floor(Math.random() * slots);
+  const blocked = new Map<string, number>();
+  for (const name of already) blocked.set(name, (blocked.get(name) ?? 0) + 1);
   const slices: string[] = [];
-  for (let index = 0; index < slots; index += 1) {
-    if (index === winnerIndex) slices.push(winner);
-    else slices.push(others[index % Math.max(1, others.length)] ?? winner);
+  for (const name of pool) {
+    if (!name) continue;
+    const skip = blocked.get(name) ?? 0;
+    if (skip > 0) {
+      blocked.set(name, skip - 1);
+      continue;
+    }
+    slices.push(name);
   }
+  let winnerIndex = slices.indexOf(winner);
+  if (winnerIndex < 0) {
+    slices.push(winner);
+    winnerIndex = slices.length - 1;
+  }
+  if (slices.length < 2) slices.push(winner);
   return { slices, winnerIndex };
 }
 
