@@ -28,12 +28,12 @@ export function cleanName(raw: string): string {
 export function readNamed(raw: string): { name: string; number?: number } | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  const match = trimmed.match(/^(?:#\s*)?(\d{1,6})(?:[.)\-:]|\s)\s*(.+)$/);
+  const match = trimmed.match(/^(?:(?:no\.?|number|#)\s*)?(\d{1,6})(?:\s*[.):\-–—]+\s*|\s+)(.+)$/i);
   if (match) {
     const number = Number(match[1]);
     const name = cleanName(match[2] ?? "");
     if (!name || name.length > 120) return null;
-    if (!Number.isInteger(number) || number < 1) return { name };
+    if (!Number.isInteger(number) || number < 1 || number > 9999) return { name };
     return { name, number };
   }
   const name = cleanName(trimmed);

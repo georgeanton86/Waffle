@@ -15,6 +15,7 @@ import {
   type ShowCue,
 } from "@/lib/draw";
 import { byNumber, useWaffle, type Entry } from "@/lib/waffle-store";
+import { parseNamed } from "@/lib/names";
 
 type FaceSlice = { id: string; name: string; number: number; color: number };
 
@@ -109,8 +110,9 @@ function slicePath(index: number, total: number): { d: string; x: number; y: num
   };
 }
 
-function shortName(name: string, max = 10): string {
-  return name.length > max ? `${name.slice(0, max - 1)}…` : name;
+function shortName(name: string, max = 16): string {
+  const clean = name.trim();
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
 }
 
 function WheelFace({
@@ -126,8 +128,7 @@ function WheelFace({
   hub: string;
   hubButton?: ReactNode;
 }) {
-  const nameSize = slices.length > 12 ? 9 : 13;
-  const nameMax = slices.length > 12 ? 8 : 12;
+  const nameSize = slices.length > 14 ? 10 : 12;
   return (
     <div className="wheel-stage">
       <div className="wheel-pointer" aria-hidden="true" />
@@ -145,24 +146,13 @@ function WheelFace({
               <text
                 className="slice-label"
                 x={piece.x}
-                y={piece.y - 4}
+                y={piece.y}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fontSize={nameSize}
-                transform={`rotate(${piece.rot} ${piece.x} ${piece.y - 4})`}
+                transform={`rotate(${piece.rot} ${piece.x} ${piece.y})`}
               >
-                {shortName(slice.name, nameMax)}
-              </text>
-              <text
-                className="slice-label"
-                x={piece.x}
-                y={piece.y + nameSize}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fontSize={8}
-                transform={`rotate(${piece.rot} ${piece.x} ${piece.y + nameSize})`}
-              >
-                {slice.number}
+                {slice.number} {shortName(slice.name)}
               </text>
             </g>
           );
@@ -623,7 +613,6 @@ export function WaffleApp() {
   const shufflePlacement = useWaffle((state) => state.shufflePlacement);
 
   const [draft, setDraft] = useState("");
-  const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [status, setStatus] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
@@ -662,7 +651,8 @@ export function WaffleApp() {
     });
   }, [settled, live, pushHistory]);
 
-  function ingest(raw: string, closePaste = false) {
+  function ingest(raw: string) {
+    const numbered = parseNamed(raw).some((item) => item.number);
     const { added, skipped } = addMany(raw);
     if (added === 0 && skipped === 0) {
       setStatus("No names found in that paste.");
@@ -672,15 +662,13 @@ export function WaffleApp() {
       setStatus("Those names are already in the list.");
       return;
     }
+    const kept = numbered ? " Numbers stayed with each name." : "";
     setStatus(
       skipped > 0
-        ? `Added ${added}. Skipped ${skipped} ${skipped === 1 ? "duplicate" : "duplicates"}.`
-        : `Added ${added} ${added === 1 ? "name" : "names"}.`,
+        ? `Added ${added}. Skipped ${skipped} ${skipped === 1 ? "duplicate" : "duplicates"}.${kept}`
+        : `Added ${added} ${added === 1 ? "name" : "names"}.${kept}`,
     );
-    if (closePaste) {
-      setPasteText("");
-      setPasteOpen(false);
-    }
+    setPasteText("");
   }
 
   function onAdd(event: FormEvent) {
@@ -803,7 +791,29 @@ export function WaffleApp() {
           </button>
         </div>
 
-        <form className="mt-3 flex gap-2" onSubmit={onAdd}>
+        <div className="mt-3">
+          <label htmlFor="paste" className="text-sm font-medium">
+            Paste the list
+          </label>
+          <textarea
+            id="paste"
+            value={pasteText}
+            onChange={(event) => setPasteText(event.target.value)}
+            rows={6}
+            className="mt-2 w-full resize-y rounded-lg border border-line bg-paper px-3 py-2 text-base leading-normal text-ink placeholder:text-muted"
+          />
+          <p className="mt-2 text-sm text-muted">Numbers stay with the name that bought that spot.</p>
+          <button
+            type="button"
+            className={`${btnPrimary} mt-2 w-full`}
+            disabled={!pasteText.trim()}
+            onClick={() => ingest(pasteText)}
+          >
+            Add the list
+          </button>
+        </div>
+
+        <form className="mt-4 flex gap-2" onSubmit={onAdd}>
           <label className="sr-only" htmlFor="name">
             Name
           </label>
@@ -812,7 +822,7 @@ export function WaffleApp() {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onPaste={onPasteInput}
-            placeholder="Type a name"
+            placeholder="Or add one name"
             maxLength={120}
             autoCapitalize="words"
             autoCorrect="off"
@@ -825,48 +835,9 @@ export function WaffleApp() {
           </button>
         </form>
 
-        <p className={`text-sm text-muted ${status ? "mt-2 mb-1 h-5" : "sr-only"}`} aria-live="polite">
+        <p className={`text-sm text-muted ${status ? "mt-2 mb-1 min-h-5" : "sr-only"}`} aria-live="polite">
           {status}
         </p>
-
-        {pasteOpen ? (
-          <div className="mb-3">
-            <label htmlFor="paste" className="text-sm font-medium">
-              Paste names
-            </label>
-            <textarea
-              id="paste"
-              value={pasteText}
-              onChange={(event) => setPasteText(event.target.value)}
-              rows={5}
-              placeholder="One name per line"
-              className="mt-2 w-full resize-y rounded-lg border border-line bg-paper px-3 py-2 text-base leading-normal text-ink placeholder:text-muted"
-            />
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button type="button" className={`${btnQuiet} w-full`} onClick={() => ingest(pasteText, true)}>
-                Add names
-              </button>
-              <button
-                type="button"
-                className={`${btnGhost} w-full`}
-                onClick={() => {
-                  setPasteOpen(false);
-                  setPasteText("");
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="mb-1 inline-flex h-11 items-center text-sm font-medium text-ink underline-offset-4 hover:underline"
-            onClick={() => setPasteOpen(true)}
-          >
-            Paste a list
-          </button>
-        )}
 
         {entries.length === 0 ? (
           <div className="border-t border-line pt-4">
