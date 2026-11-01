@@ -501,10 +501,12 @@ function DrawStage({
 function ShuffleWheel({
   slices,
   disabled,
+  mix,
   onShuffle,
 }: {
   slices: FaceSlice[];
   disabled: boolean;
+  mix: number;
   onShuffle: () => void;
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -521,25 +523,26 @@ function ShuffleWheel({
           { id: "e", name: "Name", number: 5, color: 288 },
         ];
 
-  function spin() {
-    if (disabled || busy || slices.length < 2) return;
-    setBusy(true);
-    onShuffle();
+  useEffect(() => {
+    if (mix === 0) return;
     const node = svgRef.current;
     const from = angle.current;
     const to = from + 720;
     const started = performance.now();
+    let frame = 0;
+    setBusy(true);
     const step = (now: number) => {
-      const t = Math.min(1, (now - started) / 1100);
+      const t = Math.min(1, (now - started) / 900);
       const eased = 1 - (1 - t) ** 3;
       const value = from + (to - from) * eased;
       angle.current = value;
       if (node) node.style.transform = `rotate(${value}deg)`;
-      if (t < 1) requestAnimationFrame(step);
+      if (t < 1) frame = requestAnimationFrame(step);
       else setBusy(false);
     };
-    requestAnimationFrame(step);
-  }
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [mix]);
 
   return (
     <WheelFace
@@ -551,8 +554,8 @@ function ShuffleWheel({
         <button
           type="button"
           className="wheel-hub-btn"
-          disabled={disabled || busy || slices.length < 2}
-          onClick={spin}
+          disabled={disabled || slices.length < 2}
+          onClick={onShuffle}
         >
           {busy ? "Mixing" : "Shuffle"}
         </button>
@@ -565,12 +568,14 @@ function IdleBoard({
   seconds,
   mode,
   slices,
+  mix,
   canShuffle,
   onShuffle,
 }: {
   seconds: number;
   mode: DrawMode;
   slices: FaceSlice[];
+  mix: number;
   canShuffle: boolean;
   onShuffle: () => void;
 }) {
@@ -584,11 +589,13 @@ function IdleBoard({
         <p className="text-sm font-medium tabular-nums text-ink/80">{clock(seconds * 1000)}</p>
       </div>
       <h1 className="mt-1 font-display text-4xl font-semibold leading-tight">{title}</h1>
-      {mode === "wheel" ? <ShuffleWheel slices={slices} disabled={!canShuffle} onShuffle={onShuffle} /> : null}
+      {mode === "wheel" ? (
+        <ShuffleWheel slices={slices} disabled={!canShuffle} mix={mix} onShuffle={onShuffle} />
+      ) : null}
       {mode === "waffle" ? <WaffleFace tick={2} live={false} /> : null}
       <p className="mt-2 max-w-sm text-base text-ink/75">
         {mode === "wheel"
-          ? "Each name keeps its number and gets its own color. Shuffle only changes the colors."
+          ? "Hit Randomize as many times as you want. It only shuffles the colors. Spin picks the winner."
           : mode === "waffle"
             ? "The waffle hops until it lands on the winner."
             : "Names flash until the winner locks in."}
@@ -630,6 +637,7 @@ export function WaffleApp() {
 
   const [draft, setDraft] = useState("");
   const [pasteText, setPasteText] = useState("");
+  const [mix, setMix] = useState(0);
   const [status, setStatus] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [live, setLive] = useState<LiveDraw | null>(null);
@@ -709,6 +717,13 @@ export function WaffleApp() {
     ingest(text);
   }
 
+  function onRandomize() {
+    if (locked || entries.length < 2) return;
+    shufflePlacement();
+    setMix((count) => count + 1);
+    setStatus("Colors shuffled. Each number stayed with its name.");
+  }
+
   function onDraw() {
     const state = useWaffle.getState();
     if (state.entries.length === 0) return;
@@ -775,11 +790,9 @@ export function WaffleApp() {
             seconds={spinSeconds}
             mode={drawMode}
             slices={faceSlices(entries, colorById)}
+            mix={mix}
             canShuffle={!locked && entries.length > 1}
-            onShuffle={() => {
-              shufflePlacement();
-              setStatus("Colors changed. Each name stayed on its number.");
-            }}
+            onShuffle={onRandomize}
           />
         )}
       </div>
@@ -1011,14 +1024,19 @@ export function WaffleApp() {
               </button>
             </div>
           </div>
-          <button
-            type="button"
-            className={`${live && settled ? btnQuiet : btnPrimary} w-full`}
-            disabled={!canDraw}
-            onClick={onDraw}
-          >
-            {locked ? "On the air" : entries.length === 0 ? "Add names to draw" : live && settled ? "Spin again" : "Randomize"}
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className={`${btnBase} h-12 w-full border border-line bg-card text-ink enabled:hover:bg-paper`}
+              disabled={locked || entries.length < 2}
+              onClick={onRandomize}
+            >
+              Randomize
+            </button>
+            <button type="button" className={`${btnPrimary} w-full`} disabled={!canDraw} onClick={onDraw}>
+              {locked ? "On the air" : entries.length === 0 ? "Add names" : live && settled ? "Spin again" : "Spin"}
+            </button>
+          </div>
         </div>
       </div>
     </main>
