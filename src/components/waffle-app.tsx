@@ -110,9 +110,15 @@ function slicePath(index: number, total: number): { d: string; x: number; y: num
   };
 }
 
-function shortName(name: string, max = 16): string {
+function wheelLabel(number: number, name: string, size: number): string {
   const clean = name.trim();
-  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+  const prefix = `${number} `;
+  const span = 62;
+  const max = Math.max(prefix.length + 1, Math.floor(span / (size * 0.58)));
+  const text = `${prefix}${clean}`;
+  if (text.length <= max) return text;
+  const keep = Math.max(1, max - prefix.length - 1);
+  return `${prefix}${clean.slice(0, keep)}…`;
 }
 
 function WheelFace({
@@ -128,7 +134,8 @@ function WheelFace({
   hub: string;
   hubButton?: ReactNode;
 }) {
-  const nameSize = slices.length > 14 ? 10 : 12;
+  const total = Math.max(slices.length, 1);
+  const size = total > 18 ? 9 : total > 10 ? 11 : 13;
   return (
     <div className="wheel-stage">
       <div className="wheel-pointer" aria-hidden="true" />
@@ -139,21 +146,27 @@ function WheelFace({
         aria-hidden="true"
       >
         {slices.map((slice, index) => {
-          const piece = slicePath(index, slices.length);
+          const piece = slicePath(index, total);
+          const angle = ((index + 0.5) / total) * 360;
+          const flip = angle > 90 && angle < 270;
           return (
             <g key={slice.id}>
               <path d={piece.d} fill={sliceFill(slice.color)} />
-              <text
-                className="slice-label"
-                x={piece.x}
-                y={piece.y}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fontSize={nameSize}
-                transform={`rotate(${piece.rot} ${piece.x} ${piece.y})`}
-              >
-                {slice.number} {shortName(slice.name)}
-              </text>
+              <g>
+                <text
+                  className="slice-label"
+                  textAnchor={flip ? "end" : "start"}
+                  dominantBaseline="middle"
+                  fontSize={size}
+                  transform={
+                    flip
+                      ? `translate(140 140) rotate(${angle}) translate(0 -116) rotate(90)`
+                      : `translate(140 140) rotate(${angle}) translate(0 -50) rotate(-90)`
+                  }
+                >
+                  {wheelLabel(slice.number, slice.name, size)}
+                </text>
+              </g>
             </g>
           );
         })}
