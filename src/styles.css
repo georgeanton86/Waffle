@@ -282,7 +282,7 @@
 }
 
 .wheel-svg.is-idle {
-  animation: wheel-idle 22s linear infinite;
+  animation: none;
 }
 
 .wheel-hub {

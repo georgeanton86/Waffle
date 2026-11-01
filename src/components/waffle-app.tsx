@@ -110,15 +110,11 @@ function slicePath(index: number, total: number): { d: string; x: number; y: num
   };
 }
 
-function wheelLabel(number: number, name: string, size: number): string {
-  const clean = name.trim();
-  const prefix = `${number} `;
-  const span = 62;
-  const max = Math.max(prefix.length + 1, Math.floor(span / (size * 0.58)));
-  const text = `${prefix}${clean}`;
-  if (text.length <= max) return text;
-  const keep = Math.max(1, max - prefix.length - 1);
-  return `${prefix}${clean.slice(0, keep)}…`;
+function wheelLabel(number: number, name: string): string {
+  const first = name.trim().split(/\s+/)[0] ?? "";
+  const text = `${number} ${first}`;
+  if (text.length <= 11) return text;
+  return `${number} ${first.slice(0, 7)}…`;
 }
 
 function WheelFace({
@@ -135,7 +131,7 @@ function WheelFace({
   hubButton?: ReactNode;
 }) {
   const total = Math.max(slices.length, 1);
-  const size = total > 18 ? 9 : total > 10 ? 11 : 13;
+  const size = total > 16 ? 10 : 12;
   return (
     <div className="wheel-stage">
       <div className="wheel-pointer" aria-hidden="true" />
@@ -145,31 +141,38 @@ function WheelFace({
         viewBox="0 0 280 280"
         aria-hidden="true"
       >
+        <defs>
+          <clipPath id="wheel-face">
+            <circle cx="140" cy="140" r="123" />
+          </clipPath>
+        </defs>
         {slices.map((slice, index) => {
           const piece = slicePath(index, total);
-          const angle = ((index + 0.5) / total) * 360;
-          const flip = angle > 90 && angle < 270;
-          return (
-            <g key={slice.id}>
-              <path d={piece.d} fill={sliceFill(slice.color)} />
-              <g>
-                <text
-                  className="slice-label"
-                  textAnchor={flip ? "end" : "start"}
-                  dominantBaseline="middle"
-                  fontSize={size}
-                  transform={
-                    flip
-                      ? `translate(140 140) rotate(${angle}) translate(0 -116) rotate(90)`
-                      : `translate(140 140) rotate(${angle}) translate(0 -50) rotate(-90)`
-                  }
-                >
-                  {wheelLabel(slice.number, slice.name, size)}
-                </text>
-              </g>
-            </g>
-          );
+          return <path key={slice.id} d={piece.d} fill={sliceFill(slice.color)} />;
         })}
+        <g clipPath="url(#wheel-face)">
+          {slices.map((slice, index) => {
+            const mid = ((index + 0.5) / total) * Math.PI * 2 - Math.PI / 2;
+            const reach = 90;
+            const x = 140 + reach * Math.cos(mid);
+            const y = 140 + reach * Math.sin(mid);
+            const rot = (mid * 180) / Math.PI + (Math.cos(mid) < 0 ? 180 : 0);
+            return (
+              <text
+                key={slice.id}
+                className="slice-label"
+                x={x}
+                y={y}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize={size}
+                transform={`rotate(${rot} ${x} ${y})`}
+              >
+                {wheelLabel(slice.number, slice.name)}
+              </text>
+            );
+          })}
+        </g>
         <circle cx="140" cy="140" r="38" fill="var(--color-night)" />
       </svg>
       {hubButton ?? <p className="wheel-hub line-clamp-2">{hub}</p>}
