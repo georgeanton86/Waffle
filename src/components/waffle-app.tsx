@@ -146,6 +146,7 @@ function WheelFace({
             <circle cx="140" cy="140" r="123" />
           </clipPath>
         </defs>
+        {slices.length === 0 ? <circle cx="140" cy="140" r="124" fill="var(--color-line)" /> : null}
         {slices.map((slice, index) => {
           const piece = slicePath(index, total);
           return <path key={slice.id} d={piece.d} fill={sliceFill(slice.color)} />;
@@ -512,16 +513,7 @@ function ShuffleWheel({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const angle = useRef(0);
   const [busy, setBusy] = useState(false);
-  const shown =
-    slices.length >= 2
-      ? slices
-      : [
-          { id: "a", name: "Name", number: 1, color: 0 },
-          { id: "b", name: "Name", number: 2, color: 72 },
-          { id: "c", name: "Name", number: 3, color: 144 },
-          { id: "d", name: "Name", number: 4, color: 216 },
-          { id: "e", name: "Name", number: 5, color: 288 },
-        ];
+  const shown = slices.length >= 2 ? slices : [];
 
   useEffect(() => {
     if (mix === 0) return;
@@ -687,10 +679,11 @@ export function WaffleApp() {
       return;
     }
     const kept = numbered ? " Numbers stayed with each name." : "";
+    const total = useWaffle.getState().entries.length;
     setStatus(
       skipped > 0
-        ? `Added ${added}. Skipped ${skipped} ${skipped === 1 ? "duplicate" : "duplicates"}.${kept}`
-        : `Added ${added} ${added === 1 ? "name" : "names"}.${kept}`,
+        ? `Added ${added}. Skipped ${skipped}. ${total} on the list.${kept}`
+        : `Added ${added}. ${total} on the list.${kept}`,
     );
     setPasteText("");
   }
@@ -700,7 +693,11 @@ export function WaffleApp() {
     const result = addName(draft);
     if (result === "empty") return;
     if (result === "duplicate") {
-      setStatus(`${draft.trim()} is already in the list.`);
+      setStatus(`${draft.trim()} is already in the list. Turn off One entry each to keep another spot.`);
+      return;
+    }
+    if (result === "taken") {
+      setStatus("That number is already taken.");
       return;
     }
     setStatus(`Added ${draft.trim()}.`);
@@ -766,38 +763,7 @@ export function WaffleApp() {
         }}
       />
 
-      <div ref={stageRef}>
-        {live ? (
-          <div className="mb-4">
-            <DrawStage
-              key={live.id}
-              draw={live}
-              canUndo={undoEntries !== null}
-              onSettled={onSettled}
-              onRemove={() => {
-                removeIds(live.winners.map((winner) => winner.id));
-                setUndoEntries(live.winners);
-              }}
-              onUndo={() => {
-                if (!undoEntries) return;
-                restore(undoEntries);
-                setUndoEntries(null);
-              }}
-            />
-          </div>
-        ) : (
-          <IdleBoard
-            seconds={spinSeconds}
-            mode={drawMode}
-            slices={faceSlices(entries, colorById)}
-            mix={mix}
-            canShuffle={!locked && entries.length > 1}
-            onShuffle={onRandomize}
-          />
-        )}
-      </div>
-
-      <section className="rounded-3xl border border-line bg-card p-4">
+      <section className="mb-4 rounded-3xl border border-line bg-card p-4">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-medium">Names</h2>
           <button
@@ -876,7 +842,7 @@ export function WaffleApp() {
             </button>
           </div>
         ) : (
-          <ul className="max-h-80 overflow-y-auto overscroll-contain border-t border-line">
+          <ul className="border-t border-line">
             {byNumber(entries).map((entry) => (
               <li key={entry.id} className="flex items-center gap-2 border-b border-line last:border-b-0">
                 <span className="w-10 shrink-0 text-right text-base font-medium tabular-nums">{entry.number}</span>
@@ -940,6 +906,38 @@ export function WaffleApp() {
           </div>
         ) : null}
       </section>
+
+      <div ref={stageRef}>
+        {live ? (
+          <div className="mb-4">
+            <DrawStage
+              key={live.id}
+              draw={live}
+              canUndo={undoEntries !== null}
+              onSettled={onSettled}
+              onRemove={() => {
+                removeIds(live.winners.map((winner) => winner.id));
+                setUndoEntries(live.winners);
+              }}
+              onUndo={() => {
+                if (!undoEntries) return;
+                restore(undoEntries);
+                setUndoEntries(null);
+              }}
+            />
+          </div>
+        ) : (
+          <IdleBoard
+            seconds={spinSeconds}
+            mode={drawMode}
+            slices={faceSlices(entries, colorById)}
+            mix={mix}
+            canShuffle={!locked && entries.length > 1}
+            onShuffle={onRandomize}
+          />
+        )}
+      </div>
+
 
       {history.length > 0 ? (
         <section className="mt-8">

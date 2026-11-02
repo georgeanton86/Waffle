@@ -41,12 +41,18 @@ export function readNamed(raw: string): { name: string; number?: number } | null
   return { name };
 }
 
-export function parseNamed(raw: string): { name: string; number?: number }[] {
+function chunksOf(raw: string): string[] {
   const trimmed = raw.trim();
   if (!trimmed) return [];
-  const chunks = /[\r\n]/.test(trimmed) ? trimmed.split(/\r?\n/) : trimmed.split(/[,;|]+/);
+  if (/[\r\n]/.test(trimmed)) return trimmed.split(/\r?\n/);
+  const broken = trimmed.replace(/\s+(?=(?:(?:no\.?|#)\s*)?\d{1,6}(?:[.):\-–—]+|\s)\s*\S)/gi, "\n");
+  if (broken.includes("\n")) return broken.split("\n");
+  return trimmed.split(/[,;|]+/);
+}
+
+export function parseNamed(raw: string): { name: string; number?: number }[] {
   const items: { name: string; number?: number }[] = [];
-  for (const chunk of chunks) {
+  for (const chunk of chunksOf(raw)) {
     const item = readNamed(chunk);
     if (item) items.push(item);
   }

@@ -31,6 +31,12 @@ describe("pasted Facebook lists", () => {
     ]);
   });
 
+  it("keeps ten spots even when the paste is one line", () => {
+    const pasted = "1. George 2 Mike 3 Tommy 4. Jerry 5 room 6 Bob 7 Robin 8 Ana 9 Luis 10 Sam";
+    assert.equal(parseNamed(pasted).length, 10);
+    assert.deepEqual(parseNamed(pasted)[9], { name: "Sam", number: 10 });
+  });
+
   it("still takes a plain name with no number", () => {
     assert.deepEqual(parseNamed("Robin mini"), [{ name: "Robin mini" }]);
   });
