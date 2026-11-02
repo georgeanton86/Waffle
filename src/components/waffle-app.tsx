@@ -218,7 +218,7 @@ function useWheelSpin(
     const from = angleRef.current;
     const base = ((landing % 360) + 360) % 360;
     let to = base;
-    const turns = 3 + place;
+    const turns = Math.max(6, Math.round(ms / 650)) + place;
     while (to < from + turns * 360) to += 360;
     const ms = budgets[place] ?? 0;
     const apply = (value: number) => {

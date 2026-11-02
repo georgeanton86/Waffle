@@ -1,6 +1,6 @@
-export const SPIN_MIN = 10;
+export const SPIN_MIN = 3;
 export const SPIN_MAX = 90;
-export const SPIN_STEP = 10;
+export const SPIN_STEP = 1;
 
 export type DrawMode = "show" | "wheel" | "waffle";
 

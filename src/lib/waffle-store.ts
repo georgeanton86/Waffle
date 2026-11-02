@@ -150,7 +150,7 @@ export const useWaffle = create<WaffleState>()(
     (set, get) => ({
       entries: [],
       winnerCount: 1,
-      spinSeconds: 10,
+      spinSeconds: 5,
       drawMode: "wheel",
       uniqueOnly: true,
       history: [],
