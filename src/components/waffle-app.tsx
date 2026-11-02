@@ -794,7 +794,8 @@ export function WaffleApp() {
             id="paste"
             value={pasteText}
             onChange={(event) => setPasteText(event.target.value)}
-            rows={6}
+            rows={Math.min(30, Math.max(10, pasteText.split(/\n/).length || 10))}
+            placeholder="Paste as many as you want. One name on each line."
             className="mt-2 w-full resize-y rounded-lg border border-line bg-paper px-3 py-2 text-base leading-normal text-ink placeholder:text-muted"
           />
           <p className="mt-2 text-sm text-muted">Numbers stay with the name that bought that spot.</p>
